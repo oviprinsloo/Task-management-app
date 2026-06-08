@@ -1,0 +1,478 @@
+#include <iostream>
+#include <unordered_map>
+#include <queue>
+#include <vector>
+#include <string>
+#include <iomanip>
+#include <algorithm>
+#include <ctime>
+
+using namespace std;
+
+// ─────────────────────────────────────────────
+// ENUMS
+// ─────────────────────────────────────────────
+enum class Priority { LOW = 1, MEDIUM = 2, HIGH = 3 };
+enum class Status   { PENDING, IN_PROGRESS, DONE };
+
+string priorityToStr(Priority p) {
+    switch (p) {
+        case Priority::LOW:    return "Low";
+        case Priority::MEDIUM: return "Medium";
+        case Priority::HIGH:   return "High";
+    }
+    return "Unknown";
+}
+
+string statusToStr(Status s) {
+    switch (s) {
+        case Status::PENDING:     return "Pending";
+        case Status::IN_PROGRESS: return "In Progress";
+        case Status::DONE:        return "Done";
+    }
+    return "Unknown";
+}
+
+// ─────────────────────────────────────────────
+// BASE CLASS: Task
+// ─────────────────────────────────────────────
+class Task {
+protected:
+    int         id;
+    string      title;
+    string      description;
+    Priority    priority;
+    Status      status;
+    string      dueDate;
+
+public:
+    Task(int id, const string& title, const string& desc,
+         Priority priority, const string& dueDate)
+        : id(id), title(title), description(desc),
+          priority(priority), status(Status::PENDING), dueDate(dueDate) {}
+
+    virtual ~Task() {}
+
+    // Getters
+    int         getId()          const { return id; }
+    string      getTitle()       const { return title; }
+    string      getDescription() const { return description; }
+    Priority    getPriority()    const { return priority; }
+    Status      getStatus()      const { return status; }
+    string      getDueDate()     const { return dueDate; }
+
+    // Setters
+    void setStatus(Status s)        { status = s; }
+    void setPriority(Priority p)    { priority = p; }
+    void setTitle(const string& t)  { title = t; }
+
+    virtual string getType() const { return "General"; }
+
+    virtual void display() const {
+        cout << left
+             << "  ID       : " << id           << "\n"
+             << "  Type     : " << getType()    << "\n"
+             << "  Title    : " << title        << "\n"
+             << "  Desc     : " << description  << "\n"
+             << "  Priority : " << priorityToStr(priority) << "\n"
+             << "  Status   : " << statusToStr(status)     << "\n"
+             << "  Due Date : " << dueDate      << "\n";
+    }
+
+    // For priority_queue comparison (higher priority = higher int value)
+    bool operator<(const Task& other) const {
+        return static_cast<int>(priority) < static_cast<int>(other.priority);
+    }
+};
+
+// ─────────────────────────────────────────────
+// SUBCLASS: UrgentTask
+// ─────────────────────────────────────────────
+class UrgentTask : public Task {
+    string escalationContact;
+public:
+    UrgentTask(int id, const string& title, const string& desc,
+               const string& dueDate, const string& contact)
+        : Task(id, title, desc, Priority::HIGH, dueDate),
+          escalationContact(contact) {}
+
+    string getType() const override { return "Urgent"; }
+
+    void display() const override {
+        Task::display();
+        cout << "  Escalate : " << escalationContact << "\n";
+    }
+};
+
+// ─────────────────────────────────────────────
+// SUBCLASS: RecurringTask
+// ─────────────────────────────────────────────
+class RecurringTask : public Task {
+    string recurrencePattern; // e.g. "Daily", "Weekly"
+    int    occurrencesLeft;
+public:
+    RecurringTask(int id, const string& title, const string& desc,
+                  Priority priority, const string& dueDate,
+                  const string& pattern, int occurrences)
+        : Task(id, title, desc, priority, dueDate),
+          recurrencePattern(pattern), occurrencesLeft(occurrences) {}
+
+    string getType() const override { return "Recurring"; }
+
+    void display() const override {
+        Task::display();
+        cout << "  Pattern  : " << recurrencePattern << "\n"
+             << "  Remaining: " << occurrencesLeft   << " occurrence(s)\n";
+    }
+
+    void markOccurrence() {
+        if (occurrencesLeft > 0) occurrencesLeft--;
+        if (occurrencesLeft == 0) setStatus(Status::DONE);
+    }
+};
+
+// ─────────────────────────────────────────────
+// COMPARATOR for priority_queue
+// ─────────────────────────────────────────────
+struct TaskComparator {
+    bool operator()(const Task* a, const Task* b) const {
+        // Max-heap: higher priority integer = top of queue
+        return static_cast<int>(a->getPriority()) <
+               static_cast<int>(b->getPriority());
+    }
+};
+
+// ─────────────────────────────────────────────
+// TASK MANAGER
+// ─────────────────────────────────────────────
+class TaskManager {
+    unordered_map<int, Task*> taskMap;   // id → Task*
+    int nextId;
+
+    void printSeparator() const {
+        cout << string(45, '-') << "\n";
+    }
+
+public:
+    TaskManager() : nextId(1) {}
+
+    ~TaskManager() {
+        for (auto& [id, task] : taskMap)
+            delete task;
+    }
+
+    // ── ADD ──────────────────────────────────
+    void addTask(const string& title, const string& desc,
+                 Priority priority, const string& dueDate) {
+        taskMap[nextId] = new Task(nextId, title, desc, priority, dueDate);
+        cout << "\n✔  General task added (ID: " << nextId++ << ")\n";
+    }
+
+    void addUrgentTask(const string& title, const string& desc,
+                       const string& dueDate, const string& contact) {
+        taskMap[nextId] = new UrgentTask(nextId, title, desc, dueDate, contact);
+        cout << "\n✔  Urgent task added (ID: " << nextId++ << ")\n";
+    }
+
+    void addRecurringTask(const string& title, const string& desc,
+                          Priority priority, const string& dueDate,
+                          const string& pattern, int occurrences) {
+        taskMap[nextId] = new RecurringTask(nextId, title, desc, priority,
+                                             dueDate, pattern, occurrences);
+        cout << "\n✔  Recurring task added (ID: " << nextId++ << ")\n";
+    }
+
+    // ── DELETE ───────────────────────────────
+    void deleteTask(int id) {
+        auto it = taskMap.find(id);
+        if (it == taskMap.end()) {
+            cout << "\n✘  Task ID " << id << " not found.\n";
+            return;
+        }
+        delete it->second;
+        taskMap.erase(it);
+        cout << "\n✔  Task ID " << id << " deleted.\n";
+    }
+
+    // ── UPDATE STATUS ─────────────────────────
+    void updateStatus(int id, Status newStatus) {
+        auto it = taskMap.find(id);
+        if (it == taskMap.end()) {
+            cout << "\n✘  Task ID " << id << " not found.\n";
+            return;
+        }
+        it->second->setStatus(newStatus);
+        cout << "\n✔  Task ID " << id << " status updated to "
+             << statusToStr(newStatus) << ".\n";
+    }
+
+    // ── UPDATE PRIORITY ───────────────────────
+    void updatePriority(int id, Priority newPriority) {
+        auto it = taskMap.find(id);
+        if (it == taskMap.end()) {
+            cout << "\n✘  Task ID " << id << " not found.\n";
+            return;
+        }
+        it->second->setPriority(newPriority);
+        cout << "\n✔  Task ID " << id << " priority updated to "
+             << priorityToStr(newPriority) << ".\n";
+    }
+
+    // ── VIEW SINGLE ───────────────────────────
+    void viewTask(int id) const {
+        auto it = taskMap.find(id);
+        if (it == taskMap.end()) {
+            cout << "\n✘  Task ID " << id << " not found.\n";
+            return;
+        }
+        printSeparator();
+        it->second->display();
+        printSeparator();
+    }
+
+    // ── VIEW ALL ──────────────────────────────
+    void viewAllTasks() const {
+        if (taskMap.empty()) {
+            cout << "\n  No tasks available.\n";
+            return;
+        }
+        cout << "\n  All Tasks (" << taskMap.size() << "):\n";
+        printSeparator();
+        for (auto& [id, task] : taskMap) {
+            task->display();
+            printSeparator();
+        }
+    }
+
+    // ── VIEW BY PRIORITY (uses priority_queue) ─
+    void viewByPriority() const {
+        if (taskMap.empty()) {
+            cout << "\n  No tasks available.\n";
+            return;
+        }
+        // Build a max-heap from current tasks
+        priority_queue<Task*, vector<Task*>, TaskComparator> pq;
+        for (auto& [id, task] : taskMap)
+            pq.push(task);
+
+        cout << "\n  Tasks by Priority (Highest → Lowest):\n";
+        printSeparator();
+        while (!pq.empty()) {
+            pq.top()->display();
+            printSeparator();
+            pq.pop();
+        }
+    }
+
+    // ── VIEW BY STATUS ────────────────────────
+    void viewByStatus(Status filter) const {
+        cout << "\n  Tasks with status [" << statusToStr(filter) << "]:\n";
+        printSeparator();
+        bool found = false;
+        for (auto& [id, task] : taskMap) {
+            if (task->getStatus() == filter) {
+                task->display();
+                printSeparator();
+                found = true;
+            }
+        }
+        if (!found) cout << "  None found.\n" << string(45,'-') << "\n";
+    }
+
+    // ── SEARCH BY TITLE ───────────────────────
+    void searchByTitle(const string& keyword) const {
+        cout << "\n  Search results for \"" << keyword << "\":\n";
+        printSeparator();
+        bool found = false;
+        string kw = keyword;
+        transform(kw.begin(), kw.end(), kw.begin(), ::tolower);
+        for (auto& [id, task] : taskMap) {
+            string title = task->getTitle();
+            transform(title.begin(), title.end(), title.begin(), ::tolower);
+            if (title.find(kw) != string::npos) {
+                task->display();
+                printSeparator();
+                found = true;
+            }
+        }
+        if (!found) cout << "  No matching tasks found.\n" << string(45,'-') << "\n";
+    }
+
+    // ── SUMMARY ───────────────────────────────
+    void showSummary() const {
+        int pending = 0, inProgress = 0, done = 0;
+        int low = 0, medium = 0, high = 0;
+        for (auto& [id, task] : taskMap) {
+            switch (task->getStatus()) {
+                case Status::PENDING:     pending++;    break;
+                case Status::IN_PROGRESS: inProgress++; break;
+                case Status::DONE:        done++;       break;
+            }
+            switch (task->getPriority()) {
+                case Priority::LOW:    low++;    break;
+                case Priority::MEDIUM: medium++; break;
+                case Priority::HIGH:   high++;   break;
+            }
+        }
+        cout << "\n  ╔══════════════════════════╗\n"
+             << "  ║     TASK SUMMARY         ║\n"
+             << "  ╠══════════════════════════╣\n"
+             << "  ║ Total Tasks   : " << setw(8) << left << taskMap.size() << "  ║\n"
+             << "  ╠══════════════════════════╣\n"
+             << "  ║ Pending       : " << setw(8) << pending    << "  ║\n"
+             << "  ║ In Progress   : " << setw(8) << inProgress << "  ║\n"
+             << "  ║ Done          : " << setw(8) << done       << "  ║\n"
+             << "  ╠══════════════════════════╣\n"
+             << "  ║ High Priority : " << setw(8) << high       << "  ║\n"
+             << "  ║ Med Priority  : " << setw(8) << medium     << "  ║\n"
+             << "  ║ Low Priority  : " << setw(8) << low        << "  ║\n"
+             << "  ╚══════════════════════════╝\n";
+    }
+};
+
+// ─────────────────────────────────────────────
+// HELPERS
+// ─────────────────────────────────────────────
+Priority choosePriority() {
+    cout << "  Priority (1=Low, 2=Medium, 3=High): ";
+    int p; cin >> p; cin.ignore();
+    if (p == 3) return Priority::HIGH;
+    if (p == 2) return Priority::MEDIUM;
+    return Priority::LOW;
+}
+
+Status chooseStatus() {
+    cout << "  Status (1=Pending, 2=In Progress, 3=Done): ";
+    int s; cin >> s; cin.ignore();
+    if (s == 2) return Status::IN_PROGRESS;
+    if (s == 3) return Status::DONE;
+    return Status::PENDING;
+}
+
+// ─────────────────────────────────────────────
+// MAIN MENU
+// ─────────────────────────────────────────────
+void printMenu() {
+    cout << "\n  ╔══════════════════════════════════╗\n"
+         << "  ║     TASK MANAGEMENT SYSTEM       ║\n"
+         << "  ╠══════════════════════════════════╣\n"
+         << "  ║  1. Add General Task             ║\n"
+         << "  ║  2. Add Urgent Task              ║\n"
+         << "  ║  3. Add Recurring Task           ║\n"
+         << "  ║  4. Delete Task                  ║\n"
+         << "  ║  5. Update Task Status           ║\n"
+         << "  ║  6. Update Task Priority         ║\n"
+         << "  ║  7. View Task by ID              ║\n"
+         << "  ║  8. View All Tasks               ║\n"
+         << "  ║  9. View Tasks by Priority       ║\n"
+         << "  ║ 10. View Tasks by Status         ║\n"
+         << "  ║ 11. Search Tasks by Title        ║\n"
+         << "  ║ 12. Show Summary                 ║\n"
+         << "  ║  0. Exit                         ║\n"
+         << "  ╚══════════════════════════════════╝\n"
+         << "  Choice: ";
+}
+
+int main() {
+    TaskManager manager;
+    int choice;
+
+    // Seed with demo data
+    manager.addTask("Design Database Schema", "Create ER diagram for project",
+                    Priority::HIGH, "2025-05-01");
+    manager.addUrgentTask("Fix Login Bug", "Users can't log in on mobile",
+                          "2025-04-20", "team-lead@company.com");
+    manager.addRecurringTask("Daily Standup Notes", "Record standup meeting notes",
+                             Priority::MEDIUM, "2025-12-31", "Daily", 30);
+    manager.addTask("Write Unit Tests", "Cover all service layer methods",
+                    Priority::MEDIUM, "2025-05-10");
+    manager.addTask("Update Documentation", "Revise API docs",
+                    Priority::LOW, "2025-05-15");
+
+    do {
+        printMenu();
+        cin >> choice;
+        cin.ignore();
+
+        string title, desc, dueDate, contact, pattern;
+        int id, occ;
+
+        switch (choice) {
+            case 1:
+                cout << "  Title: ";      getline(cin, title);
+                cout << "  Description: "; getline(cin, desc);
+                cout << "  Due Date (YYYY-MM-DD): "; getline(cin, dueDate);
+                manager.addTask(title, desc, choosePriority(), dueDate);
+                break;
+
+            case 2:
+                cout << "  Title: ";       getline(cin, title);
+                cout << "  Description: ";  getline(cin, desc);
+                cout << "  Due Date: ";     getline(cin, dueDate);
+                cout << "  Escalation Contact: "; getline(cin, contact);
+                manager.addUrgentTask(title, desc, dueDate, contact);
+                break;
+
+            case 3:
+                cout << "  Title: ";       getline(cin, title);
+                cout << "  Description: ";  getline(cin, desc);
+                cout << "  Due Date: ";     getline(cin, dueDate);
+                cout << "  Recurrence (Daily/Weekly/Monthly): "; getline(cin, pattern);
+                cout << "  Occurrences: "; cin >> occ; cin.ignore();
+                manager.addRecurringTask(title, desc, choosePriority(),
+                                         dueDate, pattern, occ);
+                break;
+
+            case 4:
+                cout << "  Task ID to delete: "; cin >> id; cin.ignore();
+                manager.deleteTask(id);
+                break;
+
+            case 5:
+                cout << "  Task ID: "; cin >> id; cin.ignore();
+                manager.updateStatus(id, chooseStatus());
+                break;
+
+            case 6:
+                cout << "  Task ID: "; cin >> id; cin.ignore();
+                manager.updatePriority(id, choosePriority());
+                break;
+
+            case 7:
+                cout << "  Task ID: "; cin >> id; cin.ignore();
+                manager.viewTask(id);
+                break;
+
+            case 8:
+                manager.viewAllTasks();
+                break;
+
+            case 9:
+                manager.viewByPriority();
+                break;
+
+            case 10:
+                manager.viewByStatus(chooseStatus());
+                break;
+
+            case 11:
+                cout << "  Search keyword: "; getline(cin, title);
+                manager.searchByTitle(title);
+                break;
+
+            case 12:
+                manager.showSummary();
+                break;
+
+            case 0:
+                cout << "\n  Goodbye!\n\n";
+                break;
+
+            default:
+                cout << "\n  Invalid choice. Try again.\n";
+        }
+
+    } while (choice != 0);
+
+    return 0;
+}
